@@ -27,7 +27,8 @@
       "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.HIGH_SAMPLING_RATE_SENSORS"
+        "android.permission.HIGH_SAMPLING_RATE_SENSORS",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {

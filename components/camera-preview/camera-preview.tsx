@@ -1,4 +1,4 @@
-import { CameraView, useCameraPermissions } from 'expo-camera'
+import { CameraView, useCameraPermissions, Camera, PermissionStatus } from 'expo-camera'
 import React, { useRef, useState, useImperativeHandle, forwardRef, useEffect } from 'react'
 import { View, StyleSheet, Dimensions, Text, TouchableOpacity, Platform, Alert } from 'react-native'
 import { CornerOverlay } from './corner-overlay'
@@ -16,10 +16,32 @@ interface CameraPreviewProps {
 }
 
 export const CameraPreview = forwardRef<CameraPreviewRef, CameraPreviewProps>(function CameraPreview({ onVideoRecorded, maxDurationSec = 180 }, ref) {
-  const [permission, requestPermission] = useCameraPermissions()
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions(); // Renamed for clarity
+  const [microphonePermission, setMicrophonePermission] = useState<PermissionStatus | null>(null); // New state for mic permission
+  
   const [isRecording, setIsRecording] = useState(false)
   const [recordingError, setRecordingError] = useState<string | null>(null)
   const cameraRef = useRef<CameraView | null>(null)
+
+  // Request microphone permission when component mounts or when camera permission is requested
+  useEffect(() => {
+    (async () => {
+      // Silently try to get microphone permission status initially
+      // On web, this might not return a useful status until an interaction, but it's good to check.
+      const micStatus = await Camera.getMicrophonePermissionsAsync();
+      setMicrophonePermission(micStatus.status as PermissionStatus); // Expo's getMicrophonePermissionsAsync returns an object with status
+    })();
+  }, []);
+
+  const requestAllPermissions = async () => {
+    console.log("Requesting all permissions...");
+    const camPerm = await requestCameraPermission(); // This is from useCameraPermissions
+    const micPerm = await Camera.requestMicrophonePermissionsAsync();
+    setMicrophonePermission(micPerm.status as PermissionStatus);
+    // Ensure cameraPermission state is also updated if requestCameraPermission doesn't do it automatically
+    // (useCameraPermissions hook should handle updating cameraPermission state)
+    return { camPerm, micPerm };
+  };
   const [orientation, setOrientation] = useState<'LANDSCAPE' | 'PORTRAIT'>('LANDSCAPE')
 
   useImperativeHandle(ref, () => ({
@@ -27,11 +49,19 @@ export const CameraPreview = forwardRef<CameraPreviewRef, CameraPreviewProps>(fu
       console.log('🔴 Starting recording...')
       setRecordingError(null)
       
-      if (!permission?.granted) {
-        const error = 'Camera permission not granted'
-        console.error('❌', error)
-        setRecordingError(error)
-        Alert.alert('Permission Required', 'Camera permission is required to record videos.')
+      if (!cameraPermission?.granted || microphonePermission !== 'granted') {
+                let errorMsg = 'Camera and Microphone permissions are required to record videos.';
+        if (!cameraPermission?.granted && microphonePermission !== 'granted') {
+            errorMsg = 'Camera and Microphone permissions are required.';
+        } else if (!cameraPermission?.granted) {
+            errorMsg = 'Camera permission is required.';
+        } else {
+            errorMsg = 'Microphone permission is required.';
+        }
+        console.error('❌', errorMsg);
+        setRecordingError(errorMsg);
+        Alert.alert('Permission Required', errorMsg, [{ text: "Grant Permissions", onPress: requestAllPermissions }, {text: "Cancel", style: "cancel"}]);
+        
         return
       }
       
@@ -97,7 +127,7 @@ export const CameraPreview = forwardRef<CameraPreviewRef, CameraPreviewProps>(fu
         console.log('⚠️ No active recording to stop')
       }
     },
-  }), [isRecording, permission, orientation, maxDurationSec, onVideoRecorded])
+  }), [isRecording, cameraPermission, microphonePermission, orientation, maxDurationSec, onVideoRecorded])
 
   useEffect(() => {
     // Skip orientation detection on web
@@ -113,22 +143,24 @@ export const CameraPreview = forwardRef<CameraPreviewRef, CameraPreviewProps>(fu
     return () => ScreenOrientation.removeOrientationChangeListener(sub)
   }, [])
 
-  if (!permission) return <View style={{ flex: 1 }} />
+    // Initial permission check (before UI shows request button)
+  if (!cameraPermission || !microphonePermission) return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><Text>Loading permissions...</Text></View>;
   
-  if (!permission.granted) return (
+    // If either permission is not granted, show the request UI
+  if (!cameraPermission.granted || microphonePermission !== 'granted') return (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
       <Text style={{ textAlign: 'center', marginBottom: 20 }}>
         {Platform.OS === 'web' 
-          ? 'We need camera permission to record videos. Please allow camera access in your browser.'
-          : 'We need camera permission to record videos'
+          ? 'We need camera and microphone access to record videos. Please allow access in your browser.'
+          : 'We need camera and microphone permissions to record videos.'
         }
       </Text>
       <TouchableOpacity 
         style={{ backgroundColor: '#FF6A00', padding: 12, borderRadius: 8 }}
-        onPress={() => requestPermission()}
+        onPress={requestAllPermissions}
       >
         <Text style={{ color: 'white', fontWeight: 'bold' }}>
-          {Platform.OS === 'web' ? 'Allow Camera Access' : 'Grant Camera Permission'}
+          {Platform.OS === 'web' ? 'Allow Camera & Microphone Access' : 'Grant Permissions'}
         </Text>
       </TouchableOpacity>
     </View>
@@ -161,19 +193,16 @@ export const CameraPreview = forwardRef<CameraPreviewRef, CameraPreviewProps>(fu
   )
 })
 
-const previewWidth = Math.min(Dimensions.get('window').width * 0.95, 400)
-const previewHeight = previewWidth * 9 / 16
-
 const styles = StyleSheet.create({
   cameraContainer: {
-    width: previewWidth,
-    height: previewHeight,
+    width: '100%',
+    flex: 1, // Allow the container to grow and fill the space
     alignSelf: 'center',
     borderRadius: 24,
     overflow: 'hidden',
     backgroundColor: '#000',
-    marginVertical: 24,
     justifyContent: 'center',
+    maxHeight: '100%', // Ensure it doesn't overflow its parent
   },
   camera: {
     flex: 1,

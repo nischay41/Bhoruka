@@ -1,4 +1,5 @@
-import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator, Alert } from 'react-native'
+import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator, Alert, Image, Animated } from 'react-native'
+import { router } from 'expo-router'
 import React, { useRef, useState } from 'react'
 import { CameraPreview, CameraPreviewRef } from '../../components/camera-preview/camera-preview'
 import { SensorMonitor } from '../../components/sensor-monitor'
@@ -30,12 +31,15 @@ function Analyzing() {
 }
 
 export default function ScanScreen() {
+  const [currentScreenView, setCurrentScreenView] = useState<'selection' | 'cameraFlow'>('selection');
   const cameraRef = useRef<CameraPreviewRef>(null)
   const [videoUri, setVideoUri] = useState<string | null>(null)
   const [isRecording, setIsRecording] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showResult, setShowResult] = useState(false)
-  const [qualityWarning, setQualityWarning] = useState<string | null>(null)
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastFadeAnim = useRef(new Animated.Value(0)).current; // Initial opacity: 0
+  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Start/stop recording handlers
   async function handleRecord() {
@@ -74,10 +78,21 @@ export default function ScanScreen() {
   }
   
   function handleRetake() {
-    setVideoUri(null)
-    setShowResult(false)
-    setIsAnalyzing(false)
-    setQualityWarning(null)
+    setVideoUri(null);
+    setShowResult(false);
+    setIsAnalyzing(false);
+    // Fade out the toast if it's visible
+    if (toastMessage) {
+      Animated.timing(toastFadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) {
+          setToastMessage(null);
+        }
+      });
+    }
   }
   
   function handleSubmit() {
@@ -90,18 +105,129 @@ export default function ScanScreen() {
 
   // Quality monitoring callbacks
   function handleQualityWarning(warning: string) {
-    setQualityWarning(warning)
-    console.log('⚠️ Quality warning:', warning)
+    // Reset any existing animation and timer
+    toastFadeAnim.stopAnimation();
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    
+    // Set the new message and fade in
+    setToastMessage(warning);
+    Animated.timing(toastFadeAnim, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+    
+    console.log('🍞 Toast displayed:', warning);
+    
+    // Set timer to fade out after 2 seconds
+    toastTimerRef.current = setTimeout(() => {
+      Animated.timing(toastFadeAnim, {
+        toValue: 0,
+        duration: 300, // Slightly longer fade out for smoother feel
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) {
+          setToastMessage(null);
+        }
+      });
+      toastTimerRef.current = null;
+    }, 2000); // Display toast for 2 seconds
+  }
+
+  async function handleUploadVideo() {
+    Alert.alert("Upload Video", "This feature is not yet implemented. Tapping this would open a document picker to select a video.");
+    // Future implementation using expo-document-picker:
+    // try {
+    //   const result = await DocumentPicker.getDocumentAsync({ type: 'video/*', copyToCacheDirectory: true });
+    //   if (!result.canceled && result.assets && result.assets.length > 0) {
+    //     console.log('Video picked:', result.assets[0].uri);
+    //     setVideoUri(result.assets[0].uri);
+    //     // setCurrentScreenView('cameraFlow'); // Or a specific 'previewUpload' state
+    //     // handleSubmit(); // Or a similar function for uploaded video
+    //   }
+    // } catch (err) {
+    //   console.error('Error picking video:', err);
+    //   Alert.alert("Error", "Could not pick video.");
+    // }
   }
 
   function handleQualityGood() {
-    setQualityWarning(null)
-    console.log('✅ Quality is good')
+    // No need to clear the toast immediately on quality good
+    // Let the 2-second timer handle it
+    console.log('✅ Quality is good');
   }
 
+  if (currentScreenView === 'selection') {
+    return (
+      <View style={styles.root}>
+        <View style={styles.selectionCard}>
+          <View style={styles.imageContainerWithBrackets}>
+            <Image source={require('../../assets/truck.jpg')} style={styles.truckImage} resizeMode="contain" />
+            <View style={[styles.cornerBracket, styles.topLeft]} />
+            <View style={[styles.cornerBracket, styles.topRight]} />
+            <View style={[styles.cornerBracket, styles.bottomLeft]} />
+            <View style={[styles.cornerBracket, styles.bottomRight]} />
+          </View>
+          <View style={styles.selectionButtonRow}>
+            <TouchableOpacity style={styles.uploadButton} onPress={handleUploadVideo}>
+              <Text style={styles.uploadButtonText}>Upload Video</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.scanButton} onPress={() => {
+              setVideoUri(null);
+              setIsAnalyzing(false);
+              setShowResult(false);
+              // Clear any existing toast with fade out
+              if (toastMessage) {
+                Animated.timing(toastFadeAnim, {
+                  toValue: 0,
+                  duration: 200,
+                  useNativeDriver: true,
+                }).start(({ finished }) => {
+                  if (finished) {
+                    setToastMessage(null);
+                  }
+                });
+              }
+              setCurrentScreenView('cameraFlow');
+            }}>
+              <Text style={styles.scanButtonText}>Scan with Camera</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        <TouchableOpacity style={styles.goBackButton} onPress={() => router.back()}>
+          <Text style={styles.goBackButtonText}>‹ Go back to homepage</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // cameraFlow view
   return (
     <View style={styles.root}>
       <View style={styles.container}>
+        {/* Toast Overlay - Positioned absolutely over the camera */}
+        {toastMessage ? (
+          <Animated.View 
+            style={[
+              styles.toastOverlay, 
+              { 
+                opacity: toastFadeAnim, 
+                transform: [{
+                  translateY: toastFadeAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-20, 10], // Start slightly above final position
+                  })
+                }]
+              }
+            ]}
+          >
+            <View style={styles.toastBanner}>
+              <Text style={styles.toastText}>{toastMessage}</Text>
+            </View>
+          </Animated.View>
+        ) : null}
         {!videoUri && !isAnalyzing && !showResult && (
           <CameraPreview ref={cameraRef} onVideoRecorded={handleVideoRecorded} maxDurationSec={180} />
         )}
@@ -123,12 +249,7 @@ export default function ScanScreen() {
         )}
         {showResult && <AIResult />}
         
-        {/* Quality warning banner */}
-        {qualityWarning && (
-          <View style={styles.qualityWarningBanner}>
-            <Text style={styles.qualityWarningText}>⚠️ {qualityWarning}</Text>
-          </View>
-        )}
+        {/* Camera and other content remains here */}
         
         <View style={styles.buttonRow}>
           {!videoUri && !isRecording && !isAnalyzing && !showResult && (
@@ -152,6 +273,9 @@ export default function ScanScreen() {
             </>
           )}
         </View>
+        <TouchableOpacity onPress={() => setCurrentScreenView('selection')} style={styles.backToSelectionButton}>
+          <Text style={styles.backToSelectionButtonText}>‹ Back to Options</Text>
+        </TouchableOpacity>
       </View>
       
       {/* Sensor Monitor - only show during recording */}
@@ -159,7 +283,7 @@ export default function ScanScreen() {
         isRecording={isRecording}
         onQualityWarning={handleQualityWarning}
         onQualityGood={handleQualityGood}
-        testMode={true}
+
       />
     </View>
   )
@@ -170,18 +294,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.lightGray,
     justifyContent: 'center',
-    alignItems: 'center',
+    paddingHorizontal: 16, // Add horizontal padding to the root
   },
   container: {
     backgroundColor: colors.white,
     borderRadius: 32,
     padding: 16,
     alignItems: 'center',
-    width: '95%',
-    maxWidth: 420,
+    width: '100%', // Take full width of the padded root
+    maxWidth: 420, // Keep max width for larger screens
     alignSelf: 'center',
     elevation: 2,
-    minHeight: 500,
+    // minHeight: 500, // Remove fixed min-height for more flexibility
+    aspectRatio: 9 / 17, // Maintain a consistent aspect ratio
+    justifyContent: 'space-between', // Distribute space between items
   },
   buttonRow: {
     flexDirection: 'row',
@@ -220,16 +346,16 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.orange,
     borderRadius: 12,
-    paddingVertical: 14,
-    marginRight: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
     alignItems: 'center',
   },
   submitButton: {
     flex: 1,
     backgroundColor: colors.orange,
     borderRadius: 12,
-    paddingVertical: 14,
-    marginLeft: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
     alignItems: 'center',
   },
   retakeText: {
@@ -244,17 +370,16 @@ const styles = StyleSheet.create({
   },
   videoPreview: {
     width: '100%',
-    height: 240,
-    borderRadius: 16,
+    flex: 1,
+    borderRadius: 24, // Match camera preview's container
     backgroundColor: '#000',
-    marginTop: 8,
+    overflow: 'hidden',
   },
   analyzingContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
-    marginTop: 60,
   },
   analyzingTitle: {
     fontWeight: 'bold',
@@ -302,17 +427,138 @@ const styles = StyleSheet.create({
     color: '#222',
     fontWeight: '600',
   },
-  qualityWarningBanner: {
-    backgroundColor: colors.orange,
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 16,
+  // Toast overlay container
+  toastOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100, // Ensure it's above other content
+    alignItems: 'center',
+    paddingTop: 40, // Position from top of screen
+  },
+  // Toast banner style
+  toastBanner: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)', // Semi-transparent black
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectionCard: {
+    backgroundColor: colors.white,
+    borderRadius: 32,
+    padding: 24,
+    alignItems: 'center',
     width: '100%',
+    maxWidth: 420,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    justifyContent: 'space-around',
+    minHeight: '60%',
+  },
+  imageContainerWithBrackets: {
+    width: '100%',
+    aspectRatio: 16 / 10, // Adjust aspect ratio as needed for the image
     alignItems: 'center',
   },
-  qualityWarningText: {
+  truckImage: {
+    width: '80%',
+    height: '80%',
+  },
+  cornerBracket: {
+    position: 'absolute',
+    width: 30, // Length of bracket arms
+    height: 30,
+    borderColor: colors.orange, // Color of brackets
+    borderWidth: 0, // Base border width, specific sides will be set
+  },
+  topLeft: {
+    top: 0,
+    left: 0,
+    borderTopWidth: 4, // Thickness of brackets
+    borderLeftWidth: 4,
+  },
+  topRight: {
+    top: 0,
+    right: 0,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+  },
+  bottomLeft: {
+    bottom: 0,
+    left: 0,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+  },
+  bottomRight: {
+    bottom: 0,
+    right: 0,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+  },
+  selectionButtonRow: {
+    flexDirection: 'row',
+    width: '100%',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  uploadButton: {
+    flex: 1,
+    borderWidth: 2,
+    borderColor: colors.orange,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  uploadButtonText: {
+    color: colors.orange,
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  scanButton: {
+    flex: 1,
+    backgroundColor: colors.orange,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  scanButtonText: {
     color: colors.white,
     fontWeight: 'bold',
-    fontSize: 18,
+    fontSize: 16,
+  },
+  goBackButton: {
+    marginTop: 32,
+    alignSelf: 'center',
+  },
+  goBackButtonText: {
+    color: colors.orange, // Or a more subtle color like a gray
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  backToSelectionButton: {
+    alignSelf: 'center',
+    padding: 10,
+    marginTop: 10,
+    backgroundColor: colors.lightGray, // Subtle background
+    borderRadius: 8,
+  },
+  backToSelectionButtonText: {
+    color: colors.orange,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  toastText: {
+    color: colors.white,
+    fontWeight: '600',
+    fontSize: 15,
+    textAlign: 'center',
   },
 }) 
