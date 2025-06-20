@@ -2,6 +2,7 @@ import { CameraView, useCameraPermissions, Camera, PermissionStatus } from 'expo
 import React, { useRef, useState, useImperativeHandle, forwardRef, useEffect } from 'react'
 import { View, StyleSheet, Dimensions, Text, TouchableOpacity, Platform, Alert } from 'react-native'
 import { CornerOverlay } from './corner-overlay'
+import { formatTime } from './formatTime'
 import { ArrowOverlay } from './arrow-overlay'
 import * as ScreenOrientation from 'expo-screen-orientation'
 
@@ -20,6 +21,8 @@ export const CameraPreview = forwardRef<CameraPreviewRef, CameraPreviewProps>(fu
   const [microphonePermission, setMicrophonePermission] = useState<PermissionStatus | null>(null); // New state for mic permission
   
   const [isRecording, setIsRecording] = useState(false)
+  const [elapsedTime, setElapsedTime] = useState(0)
+  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const [recordingError, setRecordingError] = useState<string | null>(null)
   const cameraRef = useRef<CameraView | null>(null)
 
@@ -88,6 +91,13 @@ export const CameraPreview = forwardRef<CameraPreviewRef, CameraPreviewProps>(fu
       try {
         console.log('📹 Setting recording state to true')
         setIsRecording(true)
+        setElapsedTime(0) // Reset elapsed time
+        if (recordingIntervalRef.current) {
+          clearInterval(recordingIntervalRef.current);
+        }
+        recordingIntervalRef.current = setInterval(() => {
+          setElapsedTime((prevTime) => prevTime + 1);
+        }, 1000);
         
         console.log('🎬 Calling recordAsync with maxDuration:', maxDurationSec)
         const video = await cameraRef.current.recordAsync({ 
@@ -96,6 +106,10 @@ export const CameraPreview = forwardRef<CameraPreviewRef, CameraPreviewProps>(fu
         
         console.log('✅ Recording completed:', video)
         setIsRecording(false)
+        if (recordingIntervalRef.current) {
+          clearInterval(recordingIntervalRef.current);
+          recordingIntervalRef.current = null;
+        }
         
         if (video?.uri) {
           console.log('🎥 Video URI:', video.uri)
@@ -107,6 +121,10 @@ export const CameraPreview = forwardRef<CameraPreviewRef, CameraPreviewProps>(fu
       } catch (e) {
         console.error('❌ Recording error:', e)
         setIsRecording(false)
+        if (recordingIntervalRef.current) {
+          clearInterval(recordingIntervalRef.current);
+          recordingIntervalRef.current = null;
+        }
         setRecordingError(`Failed to record video: ${e instanceof Error ? e.message : 'Unknown error'}`)
         
         // Show alert for debugging
@@ -123,6 +141,10 @@ export const CameraPreview = forwardRef<CameraPreviewRef, CameraPreviewProps>(fu
           console.error('❌ Error stopping recording:', e)
         }
         setIsRecording(false)
+        if (recordingIntervalRef.current) {
+          clearInterval(recordingIntervalRef.current);
+          recordingIntervalRef.current = null;
+        }
       } else {
         console.log('⚠️ No active recording to stop')
       }
@@ -186,7 +208,7 @@ export const CameraPreview = forwardRef<CameraPreviewRef, CameraPreviewProps>(fu
       {isRecording && (
         <View style={styles.recordingIndicator}>
           <View style={styles.recordingDot} />
-          <Text style={styles.recordingText}>Recording...</Text>
+          <Text style={styles.recordingText}>Recording... {formatTime(elapsedTime)}</Text>
         </View>
       )}
     </View>

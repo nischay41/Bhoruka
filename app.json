@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "Truck",
-    "slug": "Truck",
+    "name": "bhoruka",
+    "slug": "bhoruka",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/Screenshot from 2025-06-20 11-21-35.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -29,7 +29,8 @@
         "android.permission.CAMERA",
         "android.permission.HIGH_SAMPLING_RATE_SENSORS",
         "android.permission.RECORD_AUDIO"
-      ]
+      ],
+      "package": "com.ketan1.bhoruka"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -41,6 +42,11 @@
           "motionPermission": "Allow $(PRODUCT_NAME) to access your device motion sensors to ensure quality scanning."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "02415ea0-89fb-4dc2-93d9-9f4d7205031f"
+      }
+    }
   }
 }

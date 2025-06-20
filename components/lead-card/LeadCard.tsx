@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, StyleProp, ViewStyle, TextStyle } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, StyleProp, ViewStyle, TextStyle, Alert } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useRouter } from 'expo-router';
 
@@ -200,16 +200,68 @@ const statusConfig: Record<Status, {
     },
 };
 
+const API_KEY = 'cai_AAeT5TJqcFpSaqLK6QeBgk3c9z9iBEI8dpF4aNTN8zWdokg3-OYzWrs_sW4QOZDLMtsH2FZ2Pf0gE6wCTd3FDQ';
+
 const LeadCard: React.FC<LeadCardProps> = ({ lead }) => {
   const router = useRouter();
   const statusStyle = statusConfig[lead.status];
+
+  const callSeller = async () => {
+    try {
+      // Step 1: Authenticate and obtain JWT
+      const loginResp = await fetch('https://fastapi-server-1081098542602.us-central1.run.app/profiles/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api_key': API_KEY,
+        },
+        body: JSON.stringify({
+          email: 'ketan.demo@example.com',
+          name: 'Demo User',
+        }),
+      });
+
+      if (!loginResp.ok) {
+        throw new Error(`Auth failed: ${loginResp.status}`);
+      }
+
+      const { access_token } = await loginResp.json();
+      if (!access_token) {
+        throw new Error('No access token returned');
+      }
+
+      // Step 2: Initiate SIP call
+      const sipResp = await fetch('https://fastapi-server-1081098542602.us-central1.run.app/sip/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${access_token}`,
+        },
+        body: JSON.stringify({
+          name: lead.name,
+          phone: '+917981564521',
+          usecase_id: 'c4908121-d6ec-4fac-bf71-2769da7ed90d',
+          email: 'ketan.demo@example.com',
+        }),
+      });
+
+      if (!sipResp.ok) {
+        throw new Error(`SIP call failed: ${sipResp.status}`);
+      }
+
+      Alert.alert('Success', 'SIP call initiated successfully');
+    } catch (error) {
+      console.error('Error initiating SIP call', error);
+      Alert.alert('Error', 'Failed to initiate SIP call');
+    }
+  };
 
   const renderButtons = () => {
     switch (lead.status) {
       case 'Pending':
         return (
           <View style={styles.buttonContainer}>
-            <TouchableOpacity style={styles.callButton}>
+            <TouchableOpacity style={styles.callButton} onPress={callSeller}>
               <Icon name="phone" size={16} color="#333" />
               <Text style={styles.callButtonText}>Call Seller</Text>
             </TouchableOpacity>
@@ -222,7 +274,7 @@ const LeadCard: React.FC<LeadCardProps> = ({ lead }) => {
       case 'Inspected':
         return (
           <View style={styles.buttonContainer}>
-            <TouchableOpacity style={styles.callButton}>
+            <TouchableOpacity style={styles.callButton} onPress={callSeller}>
               <Icon name="phone" size={16} color="#333" />
               <Text style={styles.callButtonText}>Call Seller</Text>
             </TouchableOpacity>
@@ -235,7 +287,7 @@ const LeadCard: React.FC<LeadCardProps> = ({ lead }) => {
       case 'Deal Done':
         return (
             <View style={styles.buttonContainer}>
-                <TouchableOpacity style={styles.callButtonFull}>
+                <TouchableOpacity style={styles.callButtonFull} onPress={callSeller}>
                     <Icon name="phone" size={16} color="#333" />
                     <Text style={styles.callButtonText}>Call Seller</Text>
                 </TouchableOpacity>
