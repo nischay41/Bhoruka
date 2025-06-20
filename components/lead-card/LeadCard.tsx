@@ -239,7 +239,7 @@ const LeadCard: React.FC<LeadCardProps> = ({ lead }) => {
         },
         body: JSON.stringify({
           name: lead.name,
-          phone: '+917981564521',
+          phone: '+919672618163',
           usecase_id: 'c4908121-d6ec-4fac-bf71-2769da7ed90d',
           email: 'ketan.demo@example.com',
         }),

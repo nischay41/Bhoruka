@@ -164,7 +164,7 @@ export default function ScanScreen() {
       <View style={styles.root}>
         <View style={styles.selectionCard}>
           <View style={styles.imageContainerWithBrackets}>
-            <Image source={require('../../assets/truck.jpg')} style={styles.truckImage} resizeMode="contain" />
+            <Image source={require('../../assets/tuck.gif')} style={styles.truckImage} resizeMode="contain" />
             <View style={[styles.cornerBracket, styles.topLeft]} />
             <View style={[styles.cornerBracket, styles.topRight]} />
             <View style={[styles.cornerBracket, styles.bottomLeft]} />
