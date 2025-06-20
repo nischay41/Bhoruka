@@ -1,86 +1,223 @@
-import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator, Alert, Image, Animated } from 'react-native'
-import { router } from 'expo-router'
-import React, { useRef, useState } from 'react'
-import { CameraPreview, CameraPreviewRef } from '../../components/camera-preview/camera-preview'
-import { SensorMonitor } from '../../components/sensor-monitor'
-import { colors } from '../../theme/colors'
-import { Video, ResizeMode } from 'expo-av'
+import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator, Alert, Image, Animated, ScrollView } from 'react-native';
+import { router } from 'expo-router';
+import React, { useRef, useState } from 'react';
+import { CameraPreview, CameraPreviewRef } from '../../components/camera-preview/camera-preview';
+import { SensorMonitor } from '../../components/sensor-monitor';
+import { colors } from '../../theme/colors';
+import { Video, ResizeMode } from 'expo-av';
+import AIAnalysisResult from '../../components/ai-analysis/AIAnalysisResult';
+import * as FileSystem from 'expo-file-system';
+import { Buffer } from 'buffer';
+import Constants from 'expo-constants';
 
-// Dummy AI result component
-function AIResult() {
-  return (
-    <View style={styles.resultContainer}>
-      <Text style={styles.resultTitle}>AI-Detected Information</Text>
-      <View style={styles.resultRow}><Text style={styles.resultLabel}>Number Plate:</Text><Text style={styles.resultValue}>MH20GH3456</Text></View>
-      <View style={styles.resultRow}><Text style={styles.resultLabel}>Make:</Text><Text style={styles.resultValue}>Tata</Text></View>
-      <View style={styles.resultRow}><Text style={styles.resultLabel}>Model:</Text><Text style={styles.resultValue}>Ultra 1918.T</Text></View>
-      <View style={styles.resultRow}><Text style={styles.resultLabel}>Year:</Text><Text style={styles.resultValue}>2022</Text></View>
-    </View>
-  )
-}
+// Helper to get the correct API URL based on the platform
+const getApiBaseUrl = () => {
+  // Replace 'YOUR_COMPUTER_LOCAL_IP' with your computer's local IP address
+  // Example: '192.168.1.100'
+  const LOCAL_IP = '192.168.68.162'; // TODO: Replace with your computer's local IP
+  
+  // Use localhost for web and Android emulator, local IP for physical devices
+  if (Constants.appOwnership === 'expo') {
+    return `http://${LOCAL_IP}:8000`;
+  }
+  
+  // For iOS simulator and Android emulator
+  return 'http://10.0.2.2:8000';
+};
+
+const API_BASE_URL = getApiBaseUrl();
+
+type AIAnalysisResponse = {
+  success: boolean;
+  data: {
+    car_info: {
+      make: string;
+      model: string;
+      year: string;
+      confidence: number;
+    };
+    license_plate: {
+      number: string;
+      confidence: number;
+    };
+    damages: Array<{
+      type: string;
+      location: string;
+      length_cm: number;
+      depth_mm: number;
+      visibility: string;
+      severity: string;
+      confidence: number;
+    }>;
+    mileage: {
+      estimated_km: number;
+      confidence: number;
+      estimation_method: string;
+    };
+    condition_and_price: {
+      condition: string;
+      price_estimate_lakhs: number;
+    };
+    frame_count: number;
+    frames_processed: number;
+  };
+};
 
 // Analyzing screen
 function Analyzing() {
   return (
     <View style={styles.analyzingContainer}>
       <ActivityIndicator size="large" color={colors.orange} />
-      <Text style={styles.analyzingTitle}>Analyzing.....</Text>
-      <Text style={styles.analyzingDesc}>AI is analyzing the truck condition</Text>
+      <Text style={[styles.analyzingText, { marginTop: 20, fontSize: 20 }]}>Analyzing.....</Text>
+      <Text style={[styles.analyzingText, { fontWeight: 'normal', fontSize: 14 }]}>AI is analyzing the truck condition</Text>
     </View>
-  )
+  );
 }
 
 export default function ScanScreen() {
   const [currentScreenView, setCurrentScreenView] = useState<'selection' | 'cameraFlow'>('selection');
-  const cameraRef = useRef<CameraPreviewRef>(null)
-  const [videoUri, setVideoUri] = useState<string | null>(null)
-  const [isRecording, setIsRecording] = useState(false)
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [showResult, setShowResult] = useState(false)
+  const cameraRef = useRef<CameraPreviewRef>(null);
+  const [videoUri, setVideoUri] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [showResult, setShowResult] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<AIAnalysisResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastFadeAnim = useRef(new Animated.Value(0)).current; // Initial opacity: 0
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Start/stop recording handlers
   async function handleRecord() {
-    console.log('🎬 Record button pressed')
-    console.log('📱 Current state:', { videoUri, isRecording, isAnalyzing, showResult })
+    console.log('🎬 Record button pressed');
+    console.log('📱 Current state:', { videoUri, isRecording, isAnalyzing, showResult });
     
     if (!cameraRef.current) {
-      console.error('❌ Camera ref is null')
-      Alert.alert('Error', 'Camera is not ready')
-      return
+      console.error('❌ Camera ref is null');
+      Alert.alert('Error', 'Camera is not ready');
+      return;
     }
     
     try {
-      console.log('🔄 Setting recording state to true')
-      setIsRecording(true)
+      console.log('🔄 Setting recording state to true');
+      setIsRecording(true);
       
-      console.log('🎥 Calling cameraRef.current.startRecording()')
-      await cameraRef.current.startRecording()
+      console.log('🎥 Calling cameraRef.current.startRecording()');
+      await cameraRef.current.startRecording();
       
-      console.log('✅ startRecording completed')
+      console.log('✅ startRecording completed');
     } catch (error) {
-      console.error('❌ Error in handleRecord:', error)
-      Alert.alert('Recording Error', `Failed to start recording: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      console.error('❌ Error in handleRecord:', error);
+      Alert.alert('Recording Error', `Failed to start recording: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
-      console.log('🔄 Setting recording state to false')
-      setIsRecording(false)
+      console.log('🔄 Setting recording state to false');
+      setIsRecording(false);
     }
   }
   
   async function handleStop() {
-    await cameraRef.current?.stopRecording()
+    await cameraRef.current?.stopRecording();
   }
   
   function handleVideoRecorded(uri: string) {
-    setVideoUri(uri)
+    setVideoUri(uri);
   }
   
+  async function analyzeVideo(uri: string) {
+    if (!uri) {
+      console.error('No video URI provided');
+      return;
+    }
+
+    console.log('Starting video analysis for URI:', uri);
+    setIsAnalyzing(true);
+    setError(null);
+
+    try {
+      // Get file info to verify it exists
+      console.log('Checking if file exists:', uri);
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      console.log('File info:', fileInfo);
+      
+      if (!fileInfo.exists) {
+        const errorMsg = `Video file not found at: ${uri}`;
+        console.error(errorMsg);
+        throw new Error(errorMsg);
+      }
+
+      // Create form data to send the file
+      console.log('Creating form data...');
+      const formData = new FormData();
+      const file = {
+        uri,
+        name: 'video.mp4',
+        type: 'video/mp4',
+      };
+      console.log('File object:', file);
+      
+      formData.append('video', file as any);
+
+      console.log('Sending request to server...');
+      const apiUrl = `${API_BASE_URL}/api/assess/video/`;
+      console.log('API URL:', apiUrl);
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'multipart/form-data',
+        },
+        body: formData,
+      });
+      console.log('Response status:', response.status);
+
+      if (!response.ok) {
+        let errorText;
+        try {
+          errorText = await response.text();
+          console.error('API Error Response:', errorText);
+        } catch (e) {
+          console.error('Failed to read error response:', e);
+          errorText = 'No error details available';
+        }
+        throw new Error(`API request failed with status ${response.status}: ${errorText}`);
+      }
+
+      console.log('Parsing response JSON...');
+      const result = await response.json();
+      console.log('API Response:', JSON.stringify(result, null, 2));
+      
+      if (result.success) {
+        console.log('Analysis successful, updating UI...');
+        setAnalysisResult(result);
+        setShowResult(true);
+      } else {
+        const errorMsg = result.message || 'Analysis failed';
+        console.error('Analysis failed:', errorMsg);
+        throw new Error(errorMsg);
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      console.error('Error analyzing video:', {
+        message: errorMessage,
+        error: err,
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      
+      setError(`Failed to analyze video: ${errorMessage}`);
+      Alert.alert('Error', `Failed to analyze video: ${errorMessage}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }
+
   function handleRetake() {
     setVideoUri(null);
     setShowResult(false);
     setIsAnalyzing(false);
+    setAnalysisResult(null);
+    setError(null);
+    
     // Fade out the toast if it's visible
     if (toastMessage) {
       Animated.timing(toastFadeAnim, {
@@ -95,12 +232,12 @@ export default function ScanScreen() {
     }
   }
   
-  function handleSubmit() {
-    setIsAnalyzing(true)
-    setTimeout(() => {
-      setIsAnalyzing(false)
-      setShowResult(true)
-    }, 2000)
+  async function handleSubmit() {
+    if (videoUri) {
+      await analyzeVideo(videoUri);
+    } else {
+      Alert.alert('Error', 'No video to analyze');
+    }
   }
 
   // Quality monitoring callbacks
@@ -247,19 +384,28 @@ export default function ScanScreen() {
             <Text style={styles.analyzingText}>Analyzing…</Text>
           </View>
         )}
-        {showResult && <AIResult />}
+        {showResult && analysisResult?.data && (
+          <View style={styles.fullScreenContainer}>
+            <AIAnalysisResult data={analysisResult.data} />
+          </View>
+        )}
+        {error && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
         
         {/* Camera and other content remains here */}
         
         <View style={styles.buttonRow}>
           {!videoUri && !isRecording && !isAnalyzing && !showResult && (
             <TouchableOpacity style={styles.recordButton} onPress={handleRecord}>
-              <Text style={styles.recordText}>Record</Text>
+              <Text style={styles.buttonText}>Record</Text>
             </TouchableOpacity>
           )}
           {isRecording && !isAnalyzing && !showResult && (
             <TouchableOpacity style={styles.stopButton} onPress={handleStop}>
-              <Text style={styles.stopText}>Stop</Text>
+              <Text style={styles.buttonText}>Stop</Text>
             </TouchableOpacity>
           )}
           {videoUri && !isAnalyzing && !showResult && (
@@ -292,28 +438,27 @@ export default function ScanScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.lightGray,
-    justifyContent: 'center',
-    paddingHorizontal: 16, // Add horizontal padding to the root
+    backgroundColor: colors.white,
   },
   container: {
+    flex: 1,
     backgroundColor: colors.white,
-    borderRadius: 32,
-    padding: 16,
-    alignItems: 'center',
-    width: '100%', // Take full width of the padded root
-    maxWidth: 420, // Keep max width for larger screens
-    alignSelf: 'center',
-    elevation: 2,
-    // minHeight: 500, // Remove fixed min-height for more flexibility
-    aspectRatio: 9 / 17, // Maintain a consistent aspect ratio
-    justifyContent: 'space-between', // Distribute space between items
+    width: '100%',
+  },
+  fullScreenContainer: {
+    flex: 1,
+    width: '100%',
   },
   buttonRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 24,
     width: '100%',
+  },
+  buttonText: {
+    color: colors.white,
+    fontWeight: 'bold',
+    fontSize: 16,
   },
   recordButton: {
     flex: 1,
@@ -331,16 +476,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     alignItems: 'center',
   },
-  recordText: {
-    color: colors.white,
-    fontWeight: 'bold',
-    fontSize: 18,
-  },
-  stopText: {
-    color: colors.white,
-    fontWeight: 'bold',
-    fontSize: 18,
-  },
   retakeButton: {
     flex: 1,
     borderWidth: 2,
@@ -349,6 +484,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 16,
     alignItems: 'center',
+    marginRight: 8,
   },
   submitButton: {
     flex: 1,
@@ -361,36 +497,43 @@ const styles = StyleSheet.create({
   retakeText: {
     color: colors.orange,
     fontWeight: 'bold',
-    fontSize: 18,
+    fontSize: 16,
   },
   submitText: {
     color: colors.white,
     fontWeight: 'bold',
-    fontSize: 18,
+    fontSize: 16,
+  },
+  backToSelectionButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    borderRadius: 8,
+    backgroundColor: '#FFF9F5',  // Light orange background
+    alignSelf: 'center',
+    borderWidth: 1,
+    borderColor: '#FFE8D9',
+    marginBottom: 24,
+    
+  },
+  backToSelectionButtonText: {
+    color: colors.orange,
+    fontSize: 14,
+    fontWeight: '400',
+    marginLeft: 6,
   },
   videoPreview: {
     width: '100%',
-    flex: 1,
-    borderRadius: 24, // Match camera preview's container
-    backgroundColor: '#000',
-    overflow: 'hidden',
+    aspectRatio: 9 / 16,
+    backgroundColor: 'black',
+    borderRadius: 12,
   },
   analyzingContainer: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
-    width: '100%',
-  },
-  analyzingTitle: {
-    fontWeight: 'bold',
-    fontSize: 20,
-    marginTop: 24,
-    color: colors.orange,
-  },
-  analyzingDesc: {
-    color: '#888',
-    fontSize: 16,
-    marginTop: 8,
+    alignItems: 'center',
   },
   analyzingText: {
     marginTop: 16,
@@ -399,166 +542,174 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   resultContainer: {
-    backgroundColor: '#f5faff',
+    flex: 1,
+    width: '100%',
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    maxHeight: '80%',
+  },
+  resultContent: {
+    flexGrow: 1,
+    width: '100%',
+  },
+  errorContainer: {
+    padding: 15,
+    backgroundColor: '#ffebee',
+    borderRadius: 8,
+    margin: 15,
+    borderLeftWidth: 4,
+    borderLeftColor: '#f44336',
+  },
+  errorText: {
+    color: '#d32f2f',
+    fontSize: 14,
+  },
+  toastOverlay: {
+    position: 'absolute',
+    top: 20,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
+    alignItems: 'center',
+  },
+  toastBanner: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  toastText: {
+    color: 'white',
+    marginLeft: 10,
+    fontSize: 14,
+  },
+  selectionCard: {
+    backgroundColor: colors.white,
     borderRadius: 16,
     padding: 24,
-    marginTop: 32,
+    alignItems: 'center',
     width: '100%',
-    alignItems: 'flex-start',
+    maxWidth: 400,
+    alignSelf: 'center',
+    elevation: 2,
+  },
+  imageContainerWithBrackets: {
+    width: '100%',
+    aspectRatio: 1.5,
+    marginBottom: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#f0f0f0',
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  truckImage: {
+    width: '100%',
+    height: '100%',
+  },
+  cornerBracket: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderColor: colors.orange,
+    borderWidth: 2,
+  },
+  topLeft: {
+    top: 0,
+    left: 0,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+    borderTopLeftRadius: 8,
+  },
+  topRight: {
+    top: 0,
+    right: 0,
+    borderLeftWidth: 0,
+    borderBottomWidth: 0,
+    borderTopRightRadius: 8,
+  },
+  bottomLeft: {
+    bottom: 0,
+    left: 0,
+    borderRightWidth: 0,
+    borderTopWidth: 0,
+    borderBottomLeftRadius: 8,
+  },
+  bottomRight: {
+    bottom: 0,
+    right: 0,
+    borderLeftWidth: 0,
+    borderTopWidth: 0,
+    borderBottomRightRadius: 8,
+  },
+  selectionButtonRow: {
+    flexDirection: 'row',
+    width: '100%',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  uploadButton: {
+    flex: 1,
+    backgroundColor: colors.white,
     borderWidth: 1,
-    borderColor: '#b3d1ff',
+    borderColor: colors.orange,
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginRight: 8,
+    alignItems: 'center',
+  },
+  scanButton: {
+    flex: 1,
+    backgroundColor: colors.orange,
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginLeft: 8,
+    alignItems: 'center',
+  },
+  uploadButtonText: {
+    color: colors.orange,
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  scanButtonText: {
+    color: colors.white,
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  goBackButton: {
+    marginTop: 24,
+    padding: 12,
+    alignItems: 'center',
+  },
+  goBackButtonText: {
+    color: colors.orange,
+    fontSize: 16,
+    fontWeight: '500',
   },
   resultTitle: {
-    fontWeight: 'bold',
-    fontSize: 22,
-    color: '#1976d2',
-    marginBottom: 16,
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 12,
+    color: colors.orange,
   },
   resultRow: {
     flexDirection: 'row',
     marginBottom: 8,
   },
   resultLabel: {
-    fontWeight: 'bold',
-    color: '#333',
-    width: 150,
+    width: 120,
+    fontSize: 14,
+    color: '#666',
   },
   resultValue: {
-    color: '#222',
-    fontWeight: '600',
-  },
-  // Toast overlay container
-  toastOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100, // Ensure it's above other content
-    alignItems: 'center',
-    paddingTop: 40, // Position from top of screen
-  },
-  // Toast banner style
-  toastBanner: {
-    backgroundColor: 'rgba(0, 0, 0, 0.7)', // Semi-transparent black
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  selectionCard: {
-    backgroundColor: colors.white,
-    borderRadius: 32,
-    padding: 24,
-    alignItems: 'center',
-    width: '100%',
-    maxWidth: 420,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    justifyContent: 'space-around',
-    minHeight: '60%',
-  },
-  imageContainerWithBrackets: {
-    width: '100%',
-    aspectRatio: 16 / 10, // Adjust aspect ratio as needed for the image
-    alignItems: 'center',
-  },
-  truckImage: {
-    width: '80%',
-    height: '80%',
-  },
-  cornerBracket: {
-    position: 'absolute',
-    width: 30, // Length of bracket arms
-    height: 30,
-    borderColor: colors.orange, // Color of brackets
-    borderWidth: 0, // Base border width, specific sides will be set
-  },
-  topLeft: {
-    top: 0,
-    left: 0,
-    borderTopWidth: 4, // Thickness of brackets
-    borderLeftWidth: 4,
-  },
-  topRight: {
-    top: 0,
-    right: 0,
-    borderTopWidth: 4,
-    borderRightWidth: 4,
-  },
-  bottomLeft: {
-    bottom: 0,
-    left: 0,
-    borderBottomWidth: 4,
-    borderLeftWidth: 4,
-  },
-  bottomRight: {
-    bottom: 0,
-    right: 0,
-    borderBottomWidth: 4,
-    borderRightWidth: 4,
-  },
-  selectionButtonRow: {
-    flexDirection: 'row',
-    width: '100%',
-    justifyContent: 'center',
-    gap: 16,
-  },
-  uploadButton: {
     flex: 1,
-    borderWidth: 2,
-    borderColor: colors.orange,
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  uploadButtonText: {
-    color: colors.orange,
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  scanButton: {
-    flex: 1,
-    backgroundColor: colors.orange,
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  scanButtonText: {
-    color: colors.white,
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  goBackButton: {
-    marginTop: 32,
-    alignSelf: 'center',
-  },
-  goBackButtonText: {
-    color: colors.orange, // Or a more subtle color like a gray
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
   },
-  backToSelectionButton: {
-    alignSelf: 'center',
-    padding: 10,
-    marginTop: 10,
-    backgroundColor: colors.lightGray, // Subtle background
-    borderRadius: 8,
-  },
-  backToSelectionButtonText: {
-    color: colors.orange,
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  toastText: {
-    color: colors.white,
-    fontWeight: '600',
-    fontSize: 15,
-    textAlign: 'center',
-  },
-}) 
+});
